@@ -1,0 +1,184 @@
+<!DOCTYPE HTML>
+<html lang="en-US">
+<head>
+<meta charset="UTF-8">
+<title>关于ObReferenceObjectByHandle　</title>
+<link rel="shortcut icon" type="image/x-icon" href="/style/images/favicon.png" />
+<link rel="stylesheet" type="text/css" href="/style/css/style.css" media="all" />
+<link rel="stylesheet" type="text/css" href="/style/css/mystyle.css" media="all" />
+<link href='http://fonts.googleapis.com/css?family=Amaranth' rel='stylesheet' type='text/css'>
+<link href='http://fonts.googleapis.com/css?family=Droid+Serif:400,400italic,700,700italic' rel='stylesheet' type='text/css'>
+<!--[if IE 7]>
+<link rel="stylesheet" type="text/css" href="style/css/ie7.css" media="all" />
+<![endif]-->
+<!--[if IE 8]>
+<link rel="stylesheet" type="text/css" href="style/css/ie8.css" media="all" />
+<![endif]-->
+<!--[if IE 9]>
+<link rel="stylesheet" type="text/css" href="style/css/ie9.css" media="all" />
+<![endif]-->
+<script type="text/javascript" src="/style/js/jquery-1.6.4.min.js"></script>
+<script type="text/javascript" src="/style/js/ddsmoothmenu.js"></script>
+<script type="text/javascript" src="/style/js/jquery.jcarousel.js"></script>
+<script type="text/javascript" src="/style/js/jquery.prettyPhoto.js"></script>
+<script type="text/javascript" src="/style/js/carousel.js"></script>
+<script type="text/javascript" src="/style/js/jquery.flexslider-min.js"></script>
+<script type="text/javascript" src="/style/js/jquery.masonry.min.js"></script>
+<script type="text/javascript" src="/style/js/jquery.slickforms.js"></script>
+</head>
+<body>
+<!-- Begin Wrapper -->
+<div id="wrapper">
+	<!-- Begin Sidebar -->
+	<div id="sidebar" style="height: 8527px;">
+        <div id="content" style="height:110px;">
+		<a href="/index.html"><img src="/style/images/logo.jpg" alt="Profile Picture"  class="round_photo"/></a>
+		</div>
+        <!-- Begin Menu -->
+    <div id="menu" class="menu-v">
+      <ul>
+        <li><a href="/index.html" class="active">Home</a></li>
+        <li><a href="/blogs.html">Blogs</a></li>
+        <li><a href="/contact.html">Contact Us</a></li>
+      </ul>
+    </div>
+    <!-- End Menu -->
+   
+    
+    <div class="sidebox">
+    <ul class="share">
+    	<li><a href="#"><img src="/style/images/icon-rss.png" alt="RSS" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-facebook.png" alt="Facebook" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-twitter.png" alt="Twitter" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-dribbble.png" alt="Dribbble" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-linkedin.png" alt="LinkedIn" /></a></li>
+    </ul>
+    </div>
+	</div>
+<!-- End Sidebar -->
+<div id="content">
+	<h1 class="title">Blogs</h1>
+	<div class="line"></div>
+	<div class="intro">Nullam id dolor id nibh ultricies vehicula ut id elit. Etiam porta sem malesuada magna mollis euismod. Integer posuere erat a ante venenatis dapibus posuere velit aliquet.</div>
+			
+	<!-- Begin Post -->
+<div class="post">
+	<!-- Begin Info -->
+	<div class="info">
+        <!-- Begin Date -->
+        <div class="date">
+            <div class="day">03</div>
+            <div class="month">Mar</div>
+        </div>
+        <!-- End Date -->
+	
+        <!-- Begin Meta -->
+        <div class="meta">
+            <h1 class="title"><a href="/2014/03/03/About_ObReferenceObjectByHandle.html">关于ObReferenceObjectByHandle　</a></h1>
+        </div>
+	<!-- End Meta -->
+	</div>
+	<div class="clear"></div>
+	<!-- End Info -->	
+	<div id="content">
+        <p>貌似，好久没有写日志了，恩，主要是懒得写。</p>
+
+<p>　　　　记录点东西。</p>
+
+<p>　　　　在Hook ZwCreateProcessEx之后，希望能通过ProcessHandle参数来获取创建进程的_EPROCESS结构，不过很悲剧的是，用PsLookupProcessByProcessId，会获得一个0xC000000D(STATUS_INVALID_PARAMETER)，ProcessHandle和ProcessId明显不是同一个东东嘛，虽然都是HANDLE型变量，那么该怎么做呢？在PspCreateProcess中可以找到答案：</p>
+
+<pre><code>　　　　PEPROCESS Parent;
+
+　　　　......
+
+　　　　status = ObReferenceObjectByHandle(ParentProcess,
+
+　　　　　　　　　　　　PROCESS_CREATE_PROCESS,
+
+　　　　　　　　　　　　PsProcesType,PreviousMode,
+
+　　　　　　　　　　　　(PVOID*)&amp;Parent,NULL);
+</code></pre>
+
+<p>　　　　也就是说，可以通过ObReferenceObjectByHandle获取进程的_EPROCESS结构。</p>
+
+<p>　　　　刚刚修改好代码，还没有调试，明天再说，最后附上WDK文档中的说明：</p>
+
+<p>　　　　</p>
+
+<h3>ObReferenceObjectByHandle</h3>
+
+<p>The ObReferenceObjectByHandle routine provides access validation on the object handle, and, if access can be granted, returns the corresponding pointer to the object's body.</p>
+
+<pre><code>NTSTATUS 
+  ObReferenceObjectByHandle(
+    IN HANDLE  Handle,
+    IN ACCESS_MASK  DesiredAccess,
+    IN POBJECT_TYPE  ObjectType  OPTIONAL,
+    IN KPROCESSOR_MODE  AccessMode,
+    OUT PVOID  *Object,
+    OUT POBJECT_HANDLE_INFORMATION  HandleInformation  OPTIONAL
+    );
+</code></pre>
+
+<p>Parameters
+Handle
+Specifies an open handle for an object.
+DesiredAccess
+Specifies the requested types of access to the object. The interpretation of this field is dependent on the object type. Do not use any generic access rights.
+ObjectType
+Pointer to the object type. ObjectType can be <em>ExEventObjectType, </em>ExSemaphoreObjectType, <em>IoFileObjectType, </em>PsProcessType, <em>PsThreadType, </em>SeTokenObjectType, <em>TmEnlistmentObjectType, </em>TmResourceManagerObjectType, <em>TmTransactionManagerObjectType, or </em>TmTransactionObjectType.
+Note  The SeTokenObjectType object type is supported in Windows XP and later versions of Windows.</p>
+
+<p>If ObjectType is not NULL, the operating system verifies that the supplied object type matches the object type of the object that Handle specifies.
+AccessMode
+Specifies the access mode to use for the access check. It must be either UserMode or KernelMode. Lower-level drivers should specify KernelMode.
+Object
+Pointer to a variable that receives a pointer to the object's body. The following table contains the pointer types.</p>
+
+<p>ObjectType parameter    Object pointer type
+    *ExEventObjectType PKEVENT
+    *ExSemaphoreObjectType PKSEMAPHORE
+    *IoFileObjectType  PFILE_OBJECT
+    *PsProcessType PEPROCESS or PKPROCESS
+    *PsThreadType  PETHREAD or PKTHREAD
+    *SeTokenObjectType PACCESS_TOKEN
+    *TmEnlistmentObjectType    PKENLISTMENT
+    *TmResourceManagerObjectType   PKRESOURCEMANAGER
+    *TmTransactionManagerObjectType    PKTM
+    *TmTransactionObjectType   PKTRANSACTION</p>
+
+<p>The structures that the pointer types reference are opaque, and drivers cannot access the structure members. Because the structures are opaque, PEPROCESS is equivalent to PKPROCESS, and PETHREAD is equivalent to PKTHREAD.</p>
+
+<p>Note  The SeTokenObjectType object type is supported in Windows XP and later versions of Windows.</p>
+
+<p>HandleInformation
+Drivers set this to NULL.
+Return Value
+ObReferenceObjectByHandle returns an NTSTATUS value. The possible return values include:</p>
+
+<pre><code>STATUS_SUCCESS
+
+STATUS_OBJECT_TYPE_MISMATCH
+
+STATUS_ACCESS_DENIED
+
+STATUS_INVALID_HANDLE
+</code></pre>
+
+    </div>	
+</div>
+<!-- End Post -->
+
+</div>
+	
+</div>
+<!-- End Wrapper -->
+<div class="clear"></div>
+<script type="text/javascript" src="style/js/scripts.js"></script>
+<!--[if !IE]> -->
+<script type="text/javascript" src="style/js/jquery.corner.js"></script>
+<!-- <![endif]-->
+<div style="display:none"><script src='http://v7.cnzz.com/stat.php?id=155540&web_id=155540' language='JavaScript' charset='gb2312'></script></div>
+</body>
+</html>

@@ -1,0 +1,608 @@
+<!DOCTYPE HTML>
+<html lang="en-US">
+<head>
+<meta charset="UTF-8">
+<title>MS11-011漏洞分析</title>
+<link rel="shortcut icon" type="image/x-icon" href="/style/images/favicon.png" />
+<link rel="stylesheet" type="text/css" href="/style/css/style.css" media="all" />
+<link rel="stylesheet" type="text/css" href="/style/css/mystyle.css" media="all" />
+<link href='http://fonts.googleapis.com/css?family=Amaranth' rel='stylesheet' type='text/css'>
+<link href='http://fonts.googleapis.com/css?family=Droid+Serif:400,400italic,700,700italic' rel='stylesheet' type='text/css'>
+<!--[if IE 7]>
+<link rel="stylesheet" type="text/css" href="style/css/ie7.css" media="all" />
+<![endif]-->
+<!--[if IE 8]>
+<link rel="stylesheet" type="text/css" href="style/css/ie8.css" media="all" />
+<![endif]-->
+<!--[if IE 9]>
+<link rel="stylesheet" type="text/css" href="style/css/ie9.css" media="all" />
+<![endif]-->
+<script type="text/javascript" src="/style/js/jquery-1.6.4.min.js"></script>
+<script type="text/javascript" src="/style/js/ddsmoothmenu.js"></script>
+<script type="text/javascript" src="/style/js/jquery.jcarousel.js"></script>
+<script type="text/javascript" src="/style/js/jquery.prettyPhoto.js"></script>
+<script type="text/javascript" src="/style/js/carousel.js"></script>
+<script type="text/javascript" src="/style/js/jquery.flexslider-min.js"></script>
+<script type="text/javascript" src="/style/js/jquery.masonry.min.js"></script>
+<script type="text/javascript" src="/style/js/jquery.slickforms.js"></script>
+</head>
+<body>
+<!-- Begin Wrapper -->
+<div id="wrapper">
+	<!-- Begin Sidebar -->
+	<div id="sidebar" style="height: 8527px;">
+        <div id="content" style="height:110px;">
+		<a href="/index.html"><img src="/style/images/logo.jpg" alt="Profile Picture"  class="round_photo"/></a>
+		</div>
+        <!-- Begin Menu -->
+    <div id="menu" class="menu-v">
+      <ul>
+        <li><a href="/index.html" class="active">Home</a></li>
+        <li><a href="/blogs.html">Blogs</a></li>
+        <li><a href="/contact.html">Contact Us</a></li>
+      </ul>
+    </div>
+    <!-- End Menu -->
+   
+    
+    <div class="sidebox">
+    <ul class="share">
+    	<li><a href="#"><img src="/style/images/icon-rss.png" alt="RSS" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-facebook.png" alt="Facebook" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-twitter.png" alt="Twitter" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-dribbble.png" alt="Dribbble" /></a></li>
+    	<li><a href="#"><img src="/style/images/icon-linkedin.png" alt="LinkedIn" /></a></li>
+    </ul>
+    </div>
+	</div>
+<!-- End Sidebar -->
+<div id="content">
+	<h1 class="title">Blogs</h1>
+	<div class="line"></div>
+	<div class="intro">Nullam id dolor id nibh ultricies vehicula ut id elit. Etiam porta sem malesuada magna mollis euismod. Integer posuere erat a ante venenatis dapibus posuere velit aliquet.</div>
+			
+	<!-- Begin Post -->
+<div class="post">
+	<!-- Begin Info -->
+	<div class="info">
+        <!-- Begin Date -->
+        <div class="date">
+            <div class="day">03</div>
+            <div class="month">Mar</div>
+        </div>
+        <!-- End Date -->
+	
+        <!-- Begin Meta -->
+        <div class="meta">
+            <h1 class="title"><a href="/2014/03/03/MS11-011_Analysis.html">MS11-011漏洞分析</a></h1>
+        </div>
+	<!-- End Meta -->
+	</div>
+	<div class="clear"></div>
+	<!-- End Info -->	
+	<div id="content">
+        <p>测试环境：Windows 7</p>
+
+<p>测试工具：VMWare + Windbg + IDA</p>
+
+<p>首先下载漏洞的利用程序，在虚拟机中测试一下，发现程序可以正常运行：</p>
+
+<pre><code>C:\&gt;whoami  
+q-test\qever    
+C:\&gt;poc 
+C:\&gt;whoami  
+nt authority\system
+</code></pre>
+
+<p>下面开始寻找漏洞的成因。</p>
+
+<p>为了减少工作量，应该尽可能地确定漏洞产生的准确位置，在这里采用的方法是在poc的源代码的shellcode起始位置添加0xcc，对应的是"int 3"指令，这样shellcode一运行，就会立刻断下来，然后就可以进行分析了。</p>
+
+<p>修改过程就不废话了，直接运行修改后的程序，当windbg断下来之后，查看调用堆栈，却发现调用堆栈被破坏了</p>
+
+<pre><code>kd&gt; k   
+ChildEBP RetAddr    
+WARNING: Frame IP not in any known module. Following frames may be wrong.
+00000000 00000000 0x3d0000
+</code></pre>
+
+<p>此时可以通过对当前栈进行分析粗略估计出错位置。当然，还有一种比较好的方法，考虑到程序可以正常执行，故shellcode运行完毕后必定会返回调用位置，那么在shellcode返回位置下断，运行再次断下来之后查看堆栈可以得到</p>
+
+<pre><code>kd&gt; k
+ChildEBP RetAddr  
+WARNING: Frame IP not in any known module. Following frames may be wrong.
+92639d14 994bb8d0 0x3d0096
+92639d28 83c7f42a win32k!GreEnableEUDC+0x7c
+92639d28 772964f4 nt!KiFastCallEntry+0x12a
+</code></pre>
+
+<p>看到上面的信息，再结合poc源码中的漏洞触发代码，就能确定问题就是出现在win32k!GreEnableEUDC函数里面了，那么就从它开始分析查找漏洞成因吧！</p>
+
+<!--break-->
+
+
+<p>为了减少工作量，这里采用了一种比较笨的方法，多次尝试来准确判定出错原因及位置。过程如下：
+在win32k!GreEnableEUDC处下断点，运行修改后的程序，然后单步跟踪，直至触发shellcode中"int 3"指令，多次尝试之后可以确定如下调用信息：</p>
+
+<pre><code>win32k!GreEnableEUDC+0x77 : call win32k!BuildAndLoadLinkedFontRoutine+0xeb
+win32k!BuildAndLoadLinkedFontRoutine+0x19d : call win32k!bAppendSysDirectory+0x209
+    win32k!bAppendSysDirectory+0x334 : ret 8 //出错！[/CODE]
+</code></pre>
+
+<p>即在调用win32k!bAppendSysDirectory+0x209函数之后返回时跳入shellcode，同时在返回时查看堆栈可以发现返回地址被修改了，也就是说在该函数运行过程中栈空间被修改，即栈溢出。</p>
+
+<p>结合网上的信息，多次尝试后可以确定整个漏洞的产生流程：</p>
+
+<pre><code>nt!KiFastCallEntry+0x128 : call ebx (win32k!GreEnableEUDC)
+win32k!GreEnableEUDC+0x77 : call win32k!BuildAndLoadLinkedFontRoutine+0xeb
+    win32k!BuildAndLoadLinkedFontRoutine+0x19d : call win32k!bAppendSysDirectory+0x209
+        win32k!bAppendSysDirectory+0x2de : call dword ptr [win32k!_imp__RtlQueryRegistryValues (9972f104)]
+            nt!RtlQueryRegistryValues+0x318 : call nt!RtlpCallQueryRegistryRoutine (83e2ab81)
+                nt!RtlpCallQueryRegistryRoutine+0x290 : call nt!RtlpQueryRegistryDirect (83e33997)  
+                    nt!RtlpQueryRegistryDirect+3D : call nt!memcpy (83c797a0)           //溢出
+        win32k!bAppendSysDirectory+0x334 : ret 8 //出错！
+</code></pre>
+
+<p>那么只要分析上面所列出函数的行为，就应该能确定漏洞的成因了。</p>
+
+<p>接下来我们挨个来分析以上函数，实际分析过程中是Windbg动态调试和IDA静态分析同时进行的，在此为了书写方便，仅对Windbg代码进行分析。</p>
+
+<p>对于win32k!GreEnableEUDC，涉及到一些不知道什么意思的变量，不过并不影响分析过程。</p>
+
+<pre><code>win32k!GreEnableEUDC+0x37:
+9956b88b 33f6            xor     esi,esi                    //esi清零
+9956b88d 46              inc     esi                        //esi == 1
+……
+win32k!GreEnableEUDC+0x75:
+9956b8c9 56              push    esi                            //参数压栈
+9956b8ca 56              push    esi                            //参数压栈
+9956b8cb e8b8faffff      call    win32k!BuildAndLoadLinkedFontRoutine+0xeb (9956b388)
+</code></pre>
+
+<p>在此只简单提一下，调用参数均为1，毕竟漏洞产生的原因并不在此。</p>
+
+<p>这个函数应该是对应poc源码中的EnableEUDC(TRUE);一句，EUDC就不解释了，因为没找到好的中文资料，附上微软的介绍：</p>
+
+<pre><code>http://msdn.microsoft.com/zh-cn/library/ms900737.aspx
+</code></pre>
+
+<p>根据前面的分析，要关注win32k!BuildAndLoadLinkedFontRoutine+0xeb函数，所以这里重点列出该函数的两个参数，均为1。</p>
+
+<p>下面来看BuildAndLoadLinkedFontRoutine+0xeb函数，这个函数中也没有什么重点内容，依旧是列出参数，和调用语句。</p>
+
+<pre><code>995cb393 be08020000      mov     esi,208h       
+995cb398 56              push    esi
+995cb399 8d4dfc          lea     ecx,[ebp-4]        
+995cb39c e8a6030000      call    win32k!MALLOCOBJ::MALLOCOBJ (995cb747) //生成MALLOCOBJ对象
+……
+995cb3aa 8b5dfc          mov     ebx,dword ptr [ebp-4]
+……
+995cb434 6804010000      push    104h
+995cb439 53              push    ebx
+995cb43a e8a0050000      call    win32k!bAppendSysDirectory+0x209 (995cb9df)
+</code></pre>
+
+<p>win32k!bAppendSysDirectory+0x209 函数的两个参数，依次是MALLOCOBJ对象指针和0x104。</p>
+
+<p>关于win32k!MALLOCOBJ，个人感觉就像一个字符串的类，而在整个漏洞分析过程中，该对象也是扮演了一个字符串的角色,同时在内存起始位置记录了字符串信息。</p>
+
+<p>下面这个win32k!bAppendSysDirectory+0x209函数就比较关键了，最终出错也是在这个函数当中，先看代码：</p>
+
+<pre><code>win32k!bAppendSysDirectory+0x209:   
+9955b9df 8bff            mov     edi,edi    
+9955b9e1 55              push    ebp    
+9955b9e2 8bec            mov     ebp,esp    
+9955b9e4 83ec20          sub     esp,20h    
+9955b9e7 53              push    ebx    
+9955b9e8 56              push    esi    
+9955b9e9 57              push    edi    
+9955b9ea be08020000      mov     esi,208h   
+9955b9ef 56              push    esi
+9955b9f0 8d4df4          lea     ecx,[ebp-0Ch]                  //ebp-0Ch为MALLOCOBJ对象指针
+9955b9f3 e84ffdffff      call    win32k!MALLOCOBJ::MALLOCOBJ (9955b747)
+9955b9f8 56              push    esi    
+9955b9f9 8d4dfc          lea     ecx,[ebp-4]                    //ebp-4为MALLOCOBJ对象指针 
+9955b9fc e846fdffff      call    win32k!MALLOCOBJ::MALLOCOBJ (9955b747) 
+9955ba01 8b4df4          mov     ecx,dword ptr [ebp-0Ch]    
+9955ba04 33f6            xor     esi,esi                    //esi == 0  
+9955ba06 3bce            cmp     ecx,esi    
+9955ba08 0f84e6000000    je      win32k!bAppendSysDirectory+0x31e (9955baf4)        
+
+win32k!bAppendSysDirectory+0x238:   
+9955ba0e 8b7dfc          mov     edi,dword ptr [ebp-4]  
+9955ba11 3bfe            cmp     edi,esi    
+9955ba13 0f84db000000    je      win32k!bAppendSysDirectory+0x31e (9955baf4)    
+
+win32k!bAppendSysDirectory+0x243:   
+9955ba19 33c0            xor     eax,eax    
+9955ba1b 8975f0          mov     dword ptr [ebp-10h],esi    
+9955ba1e 8975ec          mov     dword ptr [ebp-14h],esi    
+9955ba21 668901          mov     word ptr [ecx],ax  
+9955ba24 668907          mov     word ptr [edi],ax  
+9955ba27 668945e0        mov     word ptr [ebp-20h],ax  
+9955ba2b b804010000      mov     eax,104h   
+9955ba30 50              push    eax    
+9955ba31 8bd0            mov     edx,eax    
+9955ba33 57              push    edi    
+9955ba34 8975e8          mov     dword ptr [ebp-18h],esi    
+9955ba37 668955e2        mov     word ptr [ebp-1Eh],dx  
+9955ba3b 894de4          mov     dword ptr [ebp-1Ch],ecx    
+9955ba3e e8d7feffff      call    win32k!GrePolyPolyline+0xa2 (9955b91a)     //返回"\REGISTRY\USER\S-1-5-18\EUDC\936"  
+9955ba43 3bc6            cmp     eax,esi    
+9955ba45 8945f8          mov     dword ptr [ebp-8],eax  
+9955ba48 7c7c            jl      win32k!bAppendSysDirectory+0x2f0 (9955bac6)
+</code></pre>
+
+<p>上面这段代码，首先生成MALLOCOBJ对象，通过调用win32k!GrePolyPolyline+0xa2函数，返回"\REGISTRY\USER\S-1-5-18\EUDC\936"，即需要查询的注册表项。</p>
+
+<pre><code>win32k!bAppendSysDirectory+0x274:   
+9955ba4a 8d45e8          lea     eax,[ebp-18h]  
+9955ba4d 50              push    eax    
+9955ba4e 8d45ec          lea     eax,[ebp-14h]  
+9955ba51 50              push    eax    
+9955ba52 8d45f0          lea     eax,[ebp-10h]  
+9955ba55 50              push    eax    
+9955ba56 57              push    edi    
+9955ba57 e850010000      call    win32k!AutoResource&lt;&amp;ExFreePool&gt;::~AutoResource&lt;&amp;ExFreePool&gt;+0x177 (9955bbac)  
+9955ba5c 85c0            test    eax,eax    
+9955ba5e 745f            je      win32k!bAppendSysDirectory+0x2e9 (9955babf)    
+
+win32k!bAppendSysDirectory+0x28a:   
+9955ba60 3975e8          cmp     dword ptr [ebp-18h],esi    
+9955ba63 745a            je      win32k!bAppendSysDirectory+0x2e9 (9955babf)
+</code></pre>
+
+<p>这段代码是打酱油的～～</p>
+
+<pre><code>win32k!bAppendSysDirectory+0x28f:   
+9955ba65 56              push    esi    
+9955ba66 56              push    esi    
+9955ba67 68e0887599      push    offset win32k!SharedQueryTable (997588e0)  
+9955ba6c 57              push    edi                            //"\REGISTRY\USER\S-1-5-18\EUDC\936"    
+9955ba6d 8d45e0          lea     eax,[ebp-20h]  
+9955ba70 56              push    esi    
+9955ba71 8935e0887599    mov     dword ptr [win32k!SharedQueryTable (997588e0)],esi                 //0 
+9955ba77 c705e488759924000000 mov dword ptr [win32k!SharedQueryTable+0x4 (997588e4)],24h                //24h   
+9955ba81 c705e888759964a67399 mov dword ptr [win32k!SharedQueryTable+0x8 (997588e8)],offset win32k!`string' (9973a664)  //"SystemDefaultEUDCFont"   
+9955ba8b a3ec887599      mov     dword ptr [win32k!SharedQueryTable+0xc (997588ec)],eax                 //指向函数栈的指针,最终出错也是因为这个参数 
+9955ba90 8935f0887599    mov     dword ptr [win32k!SharedQueryTable+0x10 (997588f0)],esi                //0 
+9955ba96 8935f4887599    mov     dword ptr [win32k!SharedQueryTable+0x14 (997588f4)],esi                //0 
+9955ba9c 8935f8887599    mov     dword ptr [win32k!SharedQueryTable+0x18 (997588f8)],esi            //0 
+9955baa2 8935fc887599    mov     dword ptr [win32k!SharedQueryTable+0x1c (997588fc)],esi                //0 
+9955baa8 893500897599    mov     dword ptr [win32k!SharedQueryTable+0x20 (99758900)],esi                //0 
+9955baae 893504897599    mov     dword ptr [win32k!SharedQueryTable+0x24 (99758904)],esi                //0 
+9955bab4 ff1504f17299    call    dword ptr [win32k!_imp__RtlQueryRegistryValues (9972f104)]
+</code></pre>
+
+<p>上面是关键的RtlQueryRegistryValues函数调用，我们可以查到RtlQueryRegistryValues的定义：</p>
+
+<pre><code>NTSTATUS
+
+RtlQueryRegistryValues(
+
+    IN ULONG  RelativeTo,
+
+    IN PCWSTR  Path,
+
+    IN PRTL_QUERY_REGISTRY_TABLE  QueryTable,
+
+    IN PVOID  Context,
+
+    IN PVOID  Environment  OPTIONAL
+
+    );
+</code></pre>
+
+<p>结合反汇编的结果，该函数的调用参数：RelativeTo为0，即RTL_REGISTRY_ABSOLUTE，表示绝对路径，Path值为"\REGISTRY\USER\S-1-5-18\EUDC\936"，由win32k!GrePolyPolyline+0xa2函数返回。QueryTable参数的类型为PRTL_QUERY_REGISTRY_TABLE其定义如下：</p>
+
+<pre><code>typedef struct _RTL_QUERY_REGISTRY_TABLE {
+
+    PRTL_QUERY_REGISTRY_ROUTINE QueryRoutine;
+
+    ULONG Flags;
+
+    PWSTR Name;
+
+    PVOID EntryContext;
+
+    ULONG DefaultType;
+
+    PVOID DefaultData;
+
+    ULONG DefaultLength;
+
+} RTL_QUERY_REGISTRY_TABLE, *PRTL_QUERY_REGISTRY_TABLE;
+</code></pre>
+
+<p>可能在Win7下对此结构有一定的扩充，不过并不影响分析。</p>
+
+<p>Name值为"SystemDefaultEUDCFont"，即要查询的内容。DefaultType会存储查询结果，其值为ebp-20h。其余参数为0。</p>
+
+<p>事实上，对于了解RtlQueryRegistryValues函数的人来说，看到这里就已经知道问题所在了，但是作为一次漏洞分析，如果仅仅止步于此的话，并不足以说明问题，按就让我们接着看下去吧！</p>
+
+<p>下面是RtlQueryRegistryValues函数，这个函数内容比较多，分段来解释：</p>
+
+<pre><code>kd&gt; uf nt!RtlQueryRegistryValues
+nt!RtlQueryRegistryValues:  
+83e32d85 8bff            mov     edi,edi    
+83e32d87 55              push    ebp    
+83e32d88 8bec            mov     ebp,esp
+83e32d8a 83e4f8          and     esp,0FFFFFFF8h 
+83e32d8d 83ec4c          sub     esp,4Ch    
+83e32d90 8b4d0c          mov     ecx,dword ptr [ebp+0Ch]            //exc == Path   
+83e32d93 53              push    ebx    
+83e32d94 56              push    esi    
+83e32d95 8b7508          mov     esi,dword ptr [ebp+8]              //esi == RelativeTo 
+83e32d98 57              push    edi    
+83e32d99 8d442420        lea     eax,[esp+20h]                  //eax == ebp - 0x3c     esp == 9240fc30     
+83e32d9d 50              push    eax                            
+83e32d9e 33ff            xor     edi,edi                    //edi == 0  
+83e32da0 57              push    edi    
+83e32da1 8bd6            mov     edx,esi                    //edx == RelativeTo 
+83e32da3 e89f0a0000      call    nt!RtlpGetRegistryHandle (83e33847)        //打开"\REGISTRY\USER\S-1-5-18\EUDC\936"返回,返回值放入[ebp - 0x3c](KeyHandle) 
+83e32da8 3bc7            cmp     eax,edi                    //eax ntStatus  
+83e32daa 8944240c        mov     dword ptr [esp+0Ch],eax            //ebp=9240fc8c  esp=9240fc3 
+83e32dae 0f8cf7030000    jl      nt!RtlQueryRegistryValues+0x426 (83e331ab) 0
+</code></pre>
+
+<p>上面这一段，调用nt!RtlpGetRegistryHandle，跟进之后可以发现，函数内部打开了注册表"\REGISTRY\USER\S-1-5-18\EUDC\936"项，并将句柄放入[ebp - 0x3c]中，为了表示方便，将其命名为KeyHandle。</p>
+
+<pre><code>nt!RtlQueryRegistryValues+0x2f: 
+83e32db4 8974242c        mov     dword ptr [esp+2Ch],esi            // esp + 2c == ebp - 30 
+83e32db8 8164242c00000040 and     dword ptr [esp+2Ch],40000000h 
+83e32dc0 8d442438        lea     eax,[esp+38h]                  // esp + 38 == ebp - 24 
+83e32dc4 7505            jne     nt!RtlQueryRegistryValues+0x46 (83e32dcb)  
+
+nt!RtlQueryRegistryValues+0x41: 
+83e32dc6 ff750c          push    dword ptr [ebp+0Ch]    
+83e32dc9 eb01            jmp     nt!RtlQueryRegistryValues+0x47 (83e32dcc)  
+
+//nt!RtlQueryRegistryValues+0x46:
+//83e32dcb 57              push    edi
+
+nt!RtlQueryRegistryValues+0x47:
+83e32dcc 50              push    eax                        //ebp - 24  
+83e32dcd e81661e4ff      call    nt!RtlInitUnicodeString (83c78ee8)     //ebp - 24 == Unicode_String_Path   
+83e32dd2 8d44240c        lea     eax,[esp+0Ch]                  //eax == ebp-50  status 
+83e32dd6 50              push    eax                            
+83e32dd7 57              push    edi    
+83e32dd8 8d74242c        lea     esi,[esp+2Ch]                  //esi == ebp-38 
+83e32ddc c744242c84000000 mov     dword ptr [esp+2Ch],84h               
+83e32de4 e8d782ffff      call    nt!RtlpAllocDeallocQueryBuffer (83e2b0c0)  //用esi传参，函数内执行ExAllocatePoolWithTag（1,0x84,0x76727152）    
+83e32de9 8bf0            mov     esi,eax                    //esi指向申请空间首地址    
+83e32deb 3bf7            cmp     esi,edi    
+83e32ded 7518            jne     nt!RtlQueryRegistryValues+0x82 (83e32e07)  
+</code></pre>
+
+<p>以上内容调用了nt!RtlpAllocDeallocQueryBuffer函数，其内部执行ExAllocatePoolWithTag（1,0x84,0x76727152），即申请大小为0x84的内存空间，返回内存空间的首地址。</p>
+
+<pre><code>nt!RtlQueryRegistryValues+0x82: 
+83e32e07 8b5d10          mov     ebx,dword ptr [ebp+10h]            //ebx ==  QueryTable    
+83e32e0a 897e08          mov     dword ptr [esi+8],edi  
+83e32e0d 8b442420        mov     eax,dword ptr [esp+20h]            //eax == KeyHandle  
+83e32e11 c744242882000000 mov     dword ptr [esp+28h],82h           //ebp - 34  
+83e32e19 8944241c        mov     dword ptr [esp+1Ch],eax            //ebp - 40
+
+
+nt!RtlQueryRegistryValues+0x98: 
+83e32e1d 8b0b            mov     ecx,dword ptr [ebx]                //ecx == QueryTable-&gt;QueryRoutine   
+83e32e1f 3bcf            cmp     ecx,edi    
+83e32e21 750a            jne     nt!RtlQueryRegistryValues+0xa8 (83e32e2d)  
+
+nt!RtlQueryRegistryValues+0x9e:
+83e32e23 f6430421        test    byte ptr [ebx+4],21h               // byte ptr [ebx+4] = 21h   
+83e32e27 0f8446030000    je      nt!RtlQueryRegistryValues+0x3ee (83e33173) 
+
+nt!RtlQueryRegistryValues+0xa8:
+83e32e2d 8b4304          mov     eax,dword ptr [ebx+4]  
+83e32e30 a820            test    al,20h 
+83e32e32 7419            je      nt!RtlQueryRegistryValues+0xc8 (83e32e4d)
+
+nt!RtlQueryRegistryValues+0xaf: 
+83e32e34 397b08          cmp     dword ptr [ebx+8],edi  
+83e32e37 0f841b030000    je      nt!RtlQueryRegistryValues+0x3d3 (83e33158)
+
+nt!RtlQueryRegistryValues+0xb8: 
+83e32e3d a801            test    al,1   
+83e32e3f 0f8513030000    jne     nt!RtlQueryRegistryValues+0x3d3 (83e33158) 
+
+nt!RtlQueryRegistryValues+0xc0: 
+83e32e45 3bcf            cmp     ecx,edi    
+83e32e47 0f850b030000    jne     nt!RtlQueryRegistryValues+0x3d3 (83e33158) 
+
+nt!RtlQueryRegistryValues+0xc8: 
+83e32e4d a803            test    al,3   
+83e32e4f 7418            je      nt!RtlQueryRegistryValues+0xe4 (83e32e69)  
+
+nt!RtlQueryRegistryValues+0xe4: 
+83e32e69 8b4b04          mov     ecx,dword ptr [ebx+4]              //ecx == QueryTable-&gt;Flags  
+83e32e6c 8b4308          mov     eax,dword ptr [ebx+8]              //eax == QueryTable-&gt;Name
+83e32e6f f6c101          test    cl,1   
+83e32e72 0f8438010000    je      nt!RtlQueryRegistryValues+0x22b (83e32fb0) 1
+
+nt!RtlQueryRegistryValues+0x22b:    
+83e32fb0 3bc7            cmp     eax,edi    
+83e32fb2 0f8417010000    je      nt!RtlQueryRegistryValues+0x34a (83e330cf) 
+
+nt!RtlQueryRegistryValues+0x233:    
+83e32fb8 50              push    eax    
+83e32fb9 8d442434        lea     eax,[esp+34h]
+83e32fbd 50              push    eax    
+83e32fbe e8255fe4ff      call    nt!RtlInitUnicodeString (83c78ee8) 
+83e32fc3 897c2414        mov     dword ptr [esp+14h],edi
+
+
+nt!RtlQueryRegistryValues+0x242:
+83e32fc7 8b442414        mov     eax,dword ptr [esp+14h]
+83e32fcb ff442414        inc     dword ptr [esp+14h]    
+83e32fcf 83f804          cmp     eax,4
+83e32fd2 0f8f8a010000    jg      nt!RtlQueryRegistryValues+0x3dd (83e33162)
+</code></pre>
+
+<p>上面这些内容并不重要，之所以贴出了是为了用来确定后面寄存器的值。</p>
+
+<pre><code>nt!RtlQueryRegistryValues+0x253:    
+83e32fd8 8d442410        lea     eax,[esp+10h]                      //eax == ebp-4c
+83e32fdc 50              push    eax                            //ebp - 4c
+83e32fdd ff74242c        push    dword ptr [esp+2Ch]                    //0x82  
+83e32fe1 8d442438        lea     eax,[esp+38h]                      //  
+83e32fe5 56              push    esi                            //通过nt!RtlpAllocDeallocQueryBuffer申请空间的内存空间首地址  
+83e32fe6 6a01            push    1                          //1 
+83e32fe8 50              push    eax                            //ebp-2c                            
+83e32fe9 ff742430        push    dword ptr [esp+30h]                    //KeyHandle 
+83e32fed e86a9ee4ff      call    nt!ZwQueryValueKey (83c7ce5c)
+83e32ff2 8944240c        mov     dword ptr [esp+0Ch],eax
+83e32ff6 bf230000c0      mov     edi,0C0000023h 
+83e32ffb 3d05000080      cmp     eax,80000005h  
+83e33000 7504            jne     nt!RtlQueryRegistryValues+0x281 (83e33006)
+</code></pre>
+
+<p>调用nt!ZwQueryValueKey，通过前面获得的KeyHandle来读取键值信息，返回的信息放入前面通过nt!RtlpAllocDeallocQueryBuffer函数申请的内存空间中。</p>
+
+<p>根据nt!ZwQueryValueKey的参数，可以得知返回的信息为KEY_VALUE_FULL_INFORMATION结构，其定义如下：</p>
+
+<pre><code>typedef struct _KEY_VALUE_FULL_INFORMATION {
+  ULONG  TitleIndex;
+  ULONG  Type;  
+  ULONG  DataOffset;    
+  ULONG  DataLength;    
+  ULONG  NameLength;    
+  WCHAR  Name[1];  //  Variable size
+} KEY_VALUE_FULL_INFORMATION, *PKEY_VALUE_FULL_INFORMATION;
+</code></pre>
+
+<p>这个结构在后面会用到！</p>
+
+<pre><code>nt!RtlQueryRegistryValues+0x281:    
+83e33006 33c0            xor     eax,eax
+83e33008 3944240c        cmp     dword ptr [esp+0Ch],eax
+83e3300c 7d69            jge     nt!RtlQueryRegistryValues+0x2f2 (83e33077)         
+
+nt!RtlQueryRegistryValues+0x2f2:    
+83e33077 837e0407        cmp     dword ptr [esi+4],7    
+83e3307b 750e            jne     nt!RtlQueryRegistryValues+0x306 (83e3308b) 
+
+nt!RtlQueryRegistryValues+0x306:    
+83e3308b 8b442428        mov     eax,dword ptr [esp+28h]    
+83e3308f ff7514          push    dword ptr [ebp+14h]                //Context == 0  
+83e33092 89442414        mov     dword ptr [esp+14h],eax    
+83e33096 53              push    ebx                        //QueryTable    
+83e33097 8d4c2418        lea     ecx,[esp+18h]                  //ebp-4c == 0x82    
+83e3309b 8bc6            mov     eax,esi                    //esi指向申请内存空间   
+83e3309d e8df7affff      call    nt!RtlpCallQueryRegistryRoutine (83e2ab81) 
+</code></pre>
+
+<p>这就是关键调用了，nt!RtlpCallQueryRegistryRoutine为问题函数，虽然只有两个参数压栈，但是还有部分参数是通过寄存器传递的，所以都做了一些标示。</p>
+
+<p>其参数为nt!RtlQueryRegistryValues函数的参数Context和QueryTable，以及储存前面返回的键值信息的内存空间指针。</p>
+
+<p>接下来看nt!RtlpCallQueryRegistryRoutine函数：</p>
+
+<pre><code>nt!RtlpCallQueryRegistryRoutine+0xc8:   
+83e2ac49 8b7e08          mov     edi,dword ptr [esi+8]  
+83e2ac4c 8b4604          mov     eax,dword ptr [esi+4]  
+83e2ac4f 03fe            add     edi,esi
+83e2ac51 8b760c          mov     esi,dword ptr [esi+0Ch]    
+83e2ac54 894508          mov     dword ptr [ebp+8],eax  
+83e2ac57 eb7b            jmp     nt!RtlpCallQueryRegistryRoutine+0x153 (83e2acd4)
+</code></pre>
+
+<p>这里修改了ebp+8处的值，即将QueryTable的值修改为[esi+4]，对应的是KEY_VALUE_FULL_INFORMATION结构中的Type。</p>
+
+<pre><code>nt!RtlpCallQueryRegistryRoutine+0x282:  
+83e2ae03 ff730c          push    dword ptr [ebx+0Ch]        //QueryTable-&gt;EntryContext  
+83e2ae06 f6c120          test    cl,20h 
+83e2ae09 7436            je      nt!RtlpCallQueryRegistryRoutine+0x2c0 (83e2ae41)   
+
+nt!RtlpCallQueryRegistryRoutine+0x28a:  
+83e2ae0b 8b5508          mov     edx,dword ptr [ebp+8]  //edx的值为KEY_VALUE_FULL_INFORMATION结构中的Type值 
+83e2ae0e 57              push    edi                                        //edi指向KEY_VALUE_FULL_INFORMATION结构中的Name   
+83e2ae0f 8bc6            mov     eax,esi                                //eax的值为KEY_VALUE_FULL_INFORMATION结构中的DataLength值   
+83e2ae11 e8818b0000      call    nt!RtlpQueryRegistryDirect (83e33997)
+</code></pre>
+
+<p>这个函数对传进来的参数做了一定的处理，然后传给nt!RtlpQueryRegistryDirect函数，上面有较详细的注释，这个应该就不用多说了吧。</p>
+
+<p>然后是nt!RtlpQueryRegistryDirect函数：</p>
+
+<pre><code>kd&gt; uf nt!RtlpQueryRegistryDirect
+nt!RtlpQueryRegistryDirect:
+83e33997 8bff            mov     edi,edi    
+83e33999 55              push    ebp
+83e3399a 8bec            mov     ebp,esp    
+83e3399c 53              push    ebx    
+83e3399d 8b5d08          mov     ebx,dword ptr [ebp+8]  
+83e339a0 56              push    esi    
+83e339a1 8b750c          mov     esi,dword ptr [ebp+0Ch]                //esi == QueryTable-&gt;EntryContext   
+83e339a4 57              push    edi    
+83e339a5 83fa01          cmp     edx,1  
+83e339a8 7445            je      nt!RtlpQueryRegistryDirect+0x56 (83e339ef) 
+nt!RtlpQueryRegistryDirect+0x13:
+83e339aa 83fa02          cmp     edx,2
+83e339ad 7440            je      nt!RtlpQueryRegistryDirect+0x56 (83e339ef) 
+
+nt!RtlpQueryRegistryDirect+0x18:
+83e339af 83fa07          cmp     edx,7
+83e339b2 743b            je      nt!RtlpQueryRegistryDirect+0x56 (83e339ef) 
+
+nt!RtlpQueryRegistryDirect+0x1d:
+83e339b4 83f804          cmp     eax,4
+83e339b7 770c            ja      nt!RtlpQueryRegistryDirect+0x2c (83e339c5)
+
+nt!RtlpQueryRegistryDirect+0x22:
+83e339b9 3bf3            cmp     esi,ebx
+83e339bb 7476            je      nt!RtlpQueryRegistryDirect+0x9a (83e33a33)
+
+nt!RtlpQueryRegistryDirect+0x26:
+83e339bd 85c0            test    eax,eax
+83e339bf 7510            jne     nt!RtlpQueryRegistryDirect+0x38 (83e339d1)
+
+nt!RtlpQueryRegistryDirect+0x2a:
+83e339c1 eb70            jmp     nt!RtlpQueryRegistryDirect+0x9a (83e33a33)
+
+nt!RtlpQueryRegistryDirect+0x2c:
+83e339c5 8b0e            mov     ecx,dword ptr [esi]
+83e339c7 85c9            test    ecx,ecx
+83e339c9 7d13            jge     nt!RtlpQueryRegistryDirect+0x45 (83e339de) 
+
+nt!RtlpQueryRegistryDirect+0x45:    
+83e339de 8d7808          lea     edi,[eax+8]    
+83e339e1 3bcf            cmp     ecx,edi
+83e339e3 725d            jb      nt!RtlpQueryRegistryDirect+0xa9 (83e33a42)
+</code></pre>
+
+<p>以上内容意义不大，主要是一些判断。</p>
+
+<pre><code>nt!RtlpQueryRegistryDirect+0x4c:    
+83e339e5 8906            mov     dword ptr [esi],eax        //esi指向win32k!bAppendSysDirectory+0x209函数的栈空间   
+83e339e7 895604          mov     dword ptr [esi+4],edx  //溢出！，edx的值为KEY_VALUE_FULL_INFORMATION结构中的Type值 
+83e339ea 83c608          add     esi,8  
+83e339ed ebe2            jmp     nt!RtlpQueryRegistryDirect+0x38 (83e339d1) 
+
+nt!RtlpQueryRegistryDirect+0x38:    
+83e339d1 50              push    eax                                        //eax的值为KEY_VALUE_FULL_INFORMATION结构中DataLength值  
+83e339d2 53              push    ebx                                        //ebx指向KEY_VALUE_FULL_INFORMATION结构中的Name   
+83e339d3 56              push    esi                                        //QueryTable-&gt;EntryContext + 8  
+83e339d4 e8c75de4ff      call    nt!memcpy (83c797a0)       //溢出！
+</code></pre>
+
+<p>从这里就能看到栈的溢出了。函数起始位置将esi指向QueryTable->EntryContext，这个变量的值为win32k!bAppendSysDirectory+0x209函数中ebp-0x20，也就是函数栈地址。上面的操作会将栈上的信息覆盖掉，覆盖的值一次为KEY_VALUE_FULL_INFORMATION结构中的DataLength和Type，然后是通过memcpy将KEY_VALUE_FULL_INFORMATION结构中的Name复制到栈中。</p>
+
+<p>通过上面的代码可以看到，栈溢出了！如果要利用的话，需要计算偏移量，然后修改“\REGISTRY\USER\S-1-5-18\EUDC\936\SystemDefaultEUDCFont”键值的信息，将函数的返回地址覆盖为shellcode的地址。</p>
+
+    </div>	
+</div>
+<!-- End Post -->
+
+</div>
+	
+</div>
+<!-- End Wrapper -->
+<div class="clear"></div>
+<script type="text/javascript" src="style/js/scripts.js"></script>
+<!--[if !IE]> -->
+<script type="text/javascript" src="style/js/jquery.corner.js"></script>
+<!-- <![endif]-->
+<div style="display:none"><script src='http://v7.cnzz.com/stat.php?id=155540&web_id=155540' language='JavaScript' charset='gb2312'></script></div>
+</body>
+</html>

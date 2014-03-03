@@ -2,7 +2,7 @@
 <html lang="en-US">
 <head>
 <meta charset="UTF-8">
-<title></title>
+<title>ZwQuerySystemInformation枚举内核模块</title>
 <link rel="shortcut icon" type="image/x-icon" href="/style/images/favicon.png" />
 <link rel="stylesheet" type="text/css" href="/style/css/style.css" media="all" />
 <link rel="stylesheet" type="text/css" href="/style/css/mystyle.css" media="all" />
@@ -61,8 +61,8 @@
 	<div class="line"></div>
 	<div class="intro">Nullam id dolor id nibh ultricies vehicula ut id elit. Etiam porta sem malesuada magna mollis euismod. Integer posuere erat a ante venenatis dapibus posuere velit aliquet.</div>
 			
-	
-<div class="post">		
+	<!-- Begin Post -->
+<div class="post">
 	<!-- Begin Info -->
 	<div class="info">
         <!-- Begin Date -->
@@ -74,71 +74,12 @@
 	
         <!-- Begin Meta -->
         <div class="meta">
-            <h3 class="title"><a href="/2014/03/03/MS11-011_Analysis.html">MS11-011漏洞分析</a></h3>
+            <h1 class="title"><a href="/2014/03/03/Enum_Kernel_Module_with_ZwQuerySystemInformation.html">ZwQuerySystemInformation枚举内核模块</a></h1>
         </div>
-        <!-- End Meta -->
+	<!-- End Meta -->
+	</div>
 	<div class="clear"></div>
-	<!-- End Info -->
-	<div id="content">
-        <p>测试环境：Windows 7</p>
-
-<p>测试工具：VMWare + Windbg + IDA</p>
-
-<p>首先下载漏洞的利用程序，在虚拟机中测试一下，发现程序可以正常运行：</p>
-
-<pre><code>C:\&gt;whoami  
-q-test\qever    
-C:\&gt;poc 
-C:\&gt;whoami  
-nt authority\system
-</code></pre>
-
-<p>下面开始寻找漏洞的成因。</p>
-
-<p>为了减少工作量，应该尽可能地确定漏洞产生的准确位置，在这里采用的方法是在poc的源代码的shellcode起始位置添加0xcc，对应的是"int 3"指令，这样shellcode一运行，就会立刻断下来，然后就可以进行分析了。</p>
-
-<p>修改过程就不废话了，直接运行修改后的程序，当windbg断下来之后，查看调用堆栈，却发现调用堆栈被破坏了</p>
-
-<pre><code>kd&gt; k   
-ChildEBP RetAddr    
-WARNING: Frame IP not in any known module. Following frames may be wrong.
-00000000 00000000 0x3d0000
-</code></pre>
-
-<p>此时可以通过对当前栈进行分析粗略估计出错位置。当然，还有一种比较好的方法，考虑到程序可以正常执行，故shellcode运行完毕后必定会返回调用位置，那么在shellcode返回位置下断，运行再次断下来之后查看堆栈可以得到</p>
-
-<pre><code>kd&gt; k
-ChildEBP RetAddr  
-WARNING: Frame IP not in any known module. Following frames may be wrong.
-92639d14 994bb8d0 0x3d0096
-92639d28 83c7f42a win32k!GreEnableEUDC+0x7c
-92639d28 772964f4 nt!KiFastCallEntry+0x12a
-</code></pre>
-
-<p>看到上面的信息，再结合poc源码中的漏洞触发代码，就能确定问题就是出现在win32k!GreEnableEUDC函数里面了，那么就从它开始分析查找漏洞成因吧！</p>
-
-......
-    </div>
-</div>
-<!-- End Post -->
-
-<div class="post">		
-	<!-- Begin Info -->
-	<div class="info">
-        <!-- Begin Date -->
-        <div class="date">
-            <div class="day">03</div>
-            <div class="month">Mar</div>
-        </div>
-        <!-- End Date -->
-	
-        <!-- Begin Meta -->
-        <div class="meta">
-            <h3 class="title"><a href="/2014/03/03/Enum_Kernel_Module_with_ZwQuerySystemInformation.html">ZwQuerySystemInformation枚举内核模块</a></h3>
-        </div>
-        <!-- End Meta -->
-	<div class="clear"></div>
-	<!-- End Info -->
+	<!-- End Info -->	
 	<div id="content">
         <p>函数原型:</p>
 
@@ -401,119 +342,10 @@ SystemSessionProcessesInformation // 53 Y N
 </code></pre>
 
 <p>　　　　</p>
-......
-    </div>
+
+    </div>	
 </div>
 <!-- End Post -->
-
-<div class="post">		
-	<!-- Begin Info -->
-	<div class="info">
-        <!-- Begin Date -->
-        <div class="date">
-            <div class="day">03</div>
-            <div class="month">Mar</div>
-        </div>
-        <!-- End Date -->
-	
-        <!-- Begin Meta -->
-        <div class="meta">
-            <h3 class="title"><a href="/2014/03/03/About_ObReferenceObjectByHandle.html">关于ObReferenceObjectByHandle　</a></h3>
-        </div>
-        <!-- End Meta -->
-	<div class="clear"></div>
-	<!-- End Info -->
-	<div id="content">
-        <p>貌似，好久没有写日志了，恩，主要是懒得写。</p>
-
-<p>　　　　记录点东西。</p>
-
-<p>　　　　在Hook ZwCreateProcessEx之后，希望能通过ProcessHandle参数来获取创建进程的_EPROCESS结构，不过很悲剧的是，用PsLookupProcessByProcessId，会获得一个0xC000000D(STATUS_INVALID_PARAMETER)，ProcessHandle和ProcessId明显不是同一个东东嘛，虽然都是HANDLE型变量，那么该怎么做呢？在PspCreateProcess中可以找到答案：</p>
-
-<pre><code>　　　　PEPROCESS Parent;
-
-　　　　......
-
-　　　　status = ObReferenceObjectByHandle(ParentProcess,
-
-　　　　　　　　　　　　PROCESS_CREATE_PROCESS,
-
-　　　　　　　　　　　　PsProcesType,PreviousMode,
-
-　　　　　　　　　　　　(PVOID*)&amp;Parent,NULL);
-</code></pre>
-
-<p>　　　　也就是说，可以通过ObReferenceObjectByHandle获取进程的_EPROCESS结构。</p>
-
-<p>　　　　刚刚修改好代码，还没有调试，明天再说，最后附上WDK文档中的说明：</p>
-
-<p>　　　　</p>
-
-<h3>ObReferenceObjectByHandle</h3>
-
-<p>The ObReferenceObjectByHandle routine provides access validation on the object handle, and, if access can be granted, returns the corresponding pointer to the object's body.</p>
-
-<pre><code>NTSTATUS 
-  ObReferenceObjectByHandle(
-    IN HANDLE  Handle,
-    IN ACCESS_MASK  DesiredAccess,
-    IN POBJECT_TYPE  ObjectType  OPTIONAL,
-    IN KPROCESSOR_MODE  AccessMode,
-    OUT PVOID  *Object,
-    OUT POBJECT_HANDLE_INFORMATION  HandleInformation  OPTIONAL
-    );
-</code></pre>
-
-<p>Parameters
-Handle
-Specifies an open handle for an object.
-DesiredAccess
-Specifies the requested types of access to the object. The interpretation of this field is dependent on the object type. Do not use any generic access rights.
-ObjectType
-Pointer to the object type. ObjectType can be <em>ExEventObjectType, </em>ExSemaphoreObjectType, <em>IoFileObjectType, </em>PsProcessType, <em>PsThreadType, </em>SeTokenObjectType, <em>TmEnlistmentObjectType, </em>TmResourceManagerObjectType, <em>TmTransactionManagerObjectType, or </em>TmTransactionObjectType.
-Note  The SeTokenObjectType object type is supported in Windows XP and later versions of Windows.</p>
-
-<p>If ObjectType is not NULL, the operating system verifies that the supplied object type matches the object type of the object that Handle specifies.
-AccessMode
-Specifies the access mode to use for the access check. It must be either UserMode or KernelMode. Lower-level drivers should specify KernelMode.
-Object
-Pointer to a variable that receives a pointer to the object's body. The following table contains the pointer types.</p>
-
-<p>ObjectType parameter    Object pointer type
-    *ExEventObjectType PKEVENT
-    *ExSemaphoreObjectType PKSEMAPHORE
-    *IoFileObjectType  PFILE_OBJECT
-    *PsProcessType PEPROCESS or PKPROCESS
-    *PsThreadType  PETHREAD or PKTHREAD
-    *SeTokenObjectType PACCESS_TOKEN
-    *TmEnlistmentObjectType    PKENLISTMENT
-    *TmResourceManagerObjectType   PKRESOURCEMANAGER
-    *TmTransactionManagerObjectType    PKTM
-    *TmTransactionObjectType   PKTRANSACTION</p>
-
-<p>The structures that the pointer types reference are opaque, and drivers cannot access the structure members. Because the structures are opaque, PEPROCESS is equivalent to PKPROCESS, and PETHREAD is equivalent to PKTHREAD.</p>
-
-<p>Note  The SeTokenObjectType object type is supported in Windows XP and later versions of Windows.</p>
-
-<p>HandleInformation
-Drivers set this to NULL.
-Return Value
-ObReferenceObjectByHandle returns an NTSTATUS value. The possible return values include:</p>
-
-<pre><code>STATUS_SUCCESS
-
-STATUS_OBJECT_TYPE_MISMATCH
-
-STATUS_ACCESS_DENIED
-
-STATUS_INVALID_HANDLE
-</code></pre>
-......
-    </div>
-</div>
-<!-- End Post -->
-
-
 
 </div>
 	
